@@ -1,11 +1,9 @@
-# %% [markdown]
-# Final version for site rotation program - 6/1/25
-
 # %%
-from datetime import datetime, timedelta
+import gradio as gr
+from datetime import date, timedelta
 import random
 
-# Define sensor sequence
+# Constants
 sensor_sequence = [
     {"site": "Right Stomach", "side": "right"},
     {"site": "Left Stomach", "side": "left"},
@@ -21,165 +19,141 @@ sensor_sequence = [
     {"site": "Left Leg", "side": "left"},
 ]
 
-# Define all pod sites
-pod_sites = [
-    {"site": "Left Arm", "side": "left"},
-    {"site": "Right Arm", "side": "right"},
-    {"site": "Left Leg", "side": "left"},
-    {"site": "Right Leg", "side": "right"},
-    {"site": "Left Stomach", "side": "left"},
-    {"site": "Right Stomach", "side": "right"}
-]
-
-# Valid pod placements based on sensor site
 valid_pod_sites = {
-    "Left Leg": ["Right Leg", "Left Stomach", "Right Stomach", "Left Arm"],
-    "Right Leg": ["Left Leg", "Left Stomach", "Right Stomach", "Right Arm"],
-    "Left Stomach": ["Left Leg", "Right Leg", "Left Arm"],
-    "Right Stomach": ["Left Leg", "Right Leg", "Right Arm"],
-    "Left Arm": ["Left Arm", "Left Leg", "Left Stomach", "Right Stomach"],
-    "Right Arm": ["Right Arm", "Right Leg", "Left Stomach", "Right Stomach"]
+    "Left Leg": ["Left Stomach", "Right Stomach", "Left Arm", "Left Leg"],
+    "Right Leg": ["Left Stomach", "Right Stomach", "Right Arm", "Right Leg"],
+    "Left Stomach": ["Left Leg", "Right Leg", "Left Arm", "Right Arm"],
+    "Right Stomach": ["Left Leg", "Right Leg", "Left Arm", "Right Arm"],
+    "Left Arm": ["Left Arm", "Left Leg", "Left Stomach"],
+    "Right Arm": ["Right Arm", "Right Leg", "Right Stomach"]
 }
 
-def get_next_site(current_index, rotation_list):
-    return (current_index + 1) % len(rotation_list)
+pod_change_days = 3
+sensor_change_days = 10
 
-def prompt_user_for_pod_site(suggested, options, current_pod_site):
-    print(f"\nSuggested pod site: {suggested['site']} ({suggested['side']})")
-    print("Choose an option:")
-    print("  1. Accept suggested site")
-    print("  2. Choose a different site")
-    print("  3. Make no changes and view full schedule")
-    while True:
-        choice = input("Enter 1, 2, or 3: ").strip()
-        if choice == "1":
-            return suggested
-        elif choice == "2":
-            print("\nAvailable alternative sites:")
-            for idx, opt in enumerate(options):
-                print(f"{idx + 1}. {opt['site']} ({opt['side']})")
-            while True:
-                try:
-                    selection = int(input("Enter the number of your preferred site: "))
-                    if 1 <= selection <= len(options):
-                        return options[selection - 1]
-                    else:
-                        print("Invalid number. Try again.")
-                except ValueError:
-                    print("Please enter a valid number.")
-        elif choice == "3":
-            print("\nFull Upcoming Schedule for June and July 2025:")
-            for date, change in upcoming_changes:
-                print(f"{date.date()} --> {change}")
-            print("\nContinuing with the current configuration...\n")
-            return current_pod_site  # continue without changes
-        else:
-            print("Invalid input. Please enter 1, 2, or 3.")
-
-# Initial setup
-last_sensor_index = 0
-last_pod_date = datetime.strptime("2025-05-31", "%Y-%m-%d")
-last_sensor_date = datetime.strptime("2025-05-28", "%Y-%m-%d")
-
-current_sensor_site = {"site": "Right Stomach", "side": "right"}
+# Initial values
 current_pod_site = {"site": "Right Arm", "side": "right"}
-last_pod_site = current_pod_site
+current_sensor_site = {"site": "Right Stomach", "side": "right"}
+current_pod_date = date(2025, 5, 31)
+current_sensor_date = date(2025, 5, 28)
+previous_pod_sites = [current_pod_site["site"]]
+sensor_index = 0
 
-# Show current placements
-print("Initial Sites in Use:")
-print(f"Sensor is placed at {current_sensor_site['site']} ({current_sensor_site['side']})")
-print(f"Pod is placed at {current_pod_site['site']} ({current_pod_site['side']})\n")
 
-# Confirm or correct
-print("Do you want to:")
-print("  1. Confirm current sensor/pod sites")
-print("  2. Correct them")
-while True:
-    menu_choice = input("Enter 1 or 2: ").strip()
-    if menu_choice == "1":
-        break
-    elif menu_choice == "2":
-        current_sensor_site_input = input("Enter new sensor site (e.g., Left Arm): ").strip()
-        current_pod_site_input = input("Enter new pod site (e.g., Right Stomach): ").strip()
-        def infer_side(site):
-            return "left" if "Left" in site else "right"
-        current_sensor_site = {"site": current_sensor_site_input, "side": infer_side(current_sensor_site_input)}
-        current_pod_site = {"site": current_pod_site_input, "side": infer_side(current_pod_site_input)}
-        last_pod_site = current_pod_site
-        break
-    else:
-        print("Invalid input. Please enter 1 or 2.")
+def get_next_sensor_site(last_sensor_site, index):
+    new_index = (index + 1) % len(sensor_sequence)
+    while sensor_sequence[new_index]["site"] == last_sensor_site["site"]:
+        new_index = (new_index + 1) % len(sensor_sequence)
+    return sensor_sequence[new_index], new_index
 
-# Track changes
-upcoming_changes = []
-change_events = []
-end_date = datetime.strptime("2025-07-31", "%Y-%m-%d")
-first_pod_prompt = True
 
-while last_sensor_date <= end_date or last_pod_date <= end_date:
-    # Sensor change
-    if last_sensor_date <= end_date:
-        next_sensor_date = last_sensor_date + timedelta(days=10)
-        if next_sensor_date > end_date:
-            break
-        next_sensor_index = get_next_site(last_sensor_index, sensor_sequence)
-        next_sensor_site = sensor_sequence[next_sensor_index]
-        upcoming_changes.append((next_sensor_date, f"Sensor Change at {next_sensor_site['site']} ({next_sensor_site['side']})"))
-        change_events.append(('sensor', next_sensor_date, next_sensor_site))
-        last_sensor_date = next_sensor_date
-        last_sensor_index = next_sensor_index
+def get_next_pod_site(sensor_index):
+    next_sensor_site = sensor_sequence[sensor_index]["site"]
+    possible_sites = valid_pod_sites[next_sensor_site].copy()
 
-    # Pod change
-    if last_pod_date <= end_date:
-        next_pod_date = last_pod_date + timedelta(days=3)
-        if next_pod_date > end_date:
-            break
-        allowed_pods = valid_pod_sites[next_sensor_site["site"]]
-        possible_pod_sites = [site for site in pod_sites if site["site"] in allowed_pods]
-        valid_next_pods = [site for site in possible_pod_sites if site["site"] != last_pod_site["site"]]
-        suggested_pod_site = random.choice(valid_next_pods) if valid_next_pods else random.choice(possible_pod_sites)
-        if first_pod_prompt:
-            next_pod_site = prompt_user_for_pod_site(suggested_pod_site, valid_next_pods or possible_pod_sites, current_pod_site)
-            first_pod_prompt = False
-        else:
-            next_pod_site = suggested_pod_site
-        upcoming_changes.append((next_pod_date, f"Pod Change at {next_pod_site['site']} ({next_pod_site['side']})"))
-        change_events.append(('pod', next_pod_date, next_pod_site))
-        last_pod_date = next_pod_date
-        last_pod_site = next_pod_site
+    if "Stomach" in next_sensor_site:
+        sensor_side = next_sensor_site.split()[0]
+        same_side_stomach = f"{sensor_side} Stomach"
+        if same_side_stomach in possible_sites:
+            possible_sites.remove(same_side_stomach)
 
-# Sort and apply today's changes
-upcoming_changes.sort(key=lambda x: x[0])
-change_events.sort(key=lambda x: x[1])
-today = datetime.today().date()
+    for site in previous_pod_sites[-2:]:
+        if site in possible_sites:
+            possible_sites.remove(site)
 
-for change_type, change_date, new_site in change_events:
-    if change_date.date() == today:
-        if change_type == 'sensor':
-            current_sensor_site = new_site
-        elif change_type == 'pod':
-            current_pod_site = new_site
+    if not possible_sites:
+        possible_sites = valid_pod_sites[next_sensor_site].copy()
 
-# Display updated current state
-print("\n[Updated Sites for Today]")
-print(f"Current Sensor Site: {current_sensor_site['site']} ({current_sensor_site['side']})")
-print(f"Current Pod Site: {current_pod_site['site']} ({current_pod_site['side']})")
+    chosen = random.choice(possible_sites)
+    previous_pod_sites.append(chosen)
+    if len(previous_pod_sites) > 2:
+        previous_pod_sites.pop(0)
 
-# Show next changes
-future = [evt for evt in change_events if evt[1].date() > today]
-if future:
-    next_sensor = next((e for e in future if e[0] == 'sensor'), None)
-    next_pod = next((e for e in future if e[0] == 'pod'), None)
-    print("\n[Next Scheduled Changes]")
-    if next_sensor:
-        print(f"Next Sensor Change: {next_sensor[1].date()} at {next_sensor[2]['site']} ({next_sensor[2]['side']})")
-    if next_pod:
-        print(f"Next Pod Change:    {next_pod[1].date()} at {next_pod[2]['site']} ({next_pod[2]['side']})")
+    return chosen
 
-# Show full schedule
-print("\nFull Upcoming Schedule for June and July 2025:")
-for date, change in upcoming_changes:
-    print(f"{date.date()} --> {change}")
+
+def forecast_schedule(pod_date, sensor_date, pod_site, sensor_site, index, weeks=4):
+    forecast = []
+    today = date.today()
+    end = today + timedelta(weeks=weeks)
+    next_pod_date = pod_date + timedelta(days=pod_change_days)
+    next_sensor_date = sensor_date + timedelta(days=sensor_change_days)
+    idx = index
+    last_sensor = sensor_site
+
+    while next_pod_date <= end or next_sensor_date <= end:
+        if next_pod_date <= end:
+            site = get_next_pod_site(idx)
+            forecast.append(f"{next_pod_date.strftime('%b %d, %Y')}: Pod Change -> {site}")
+            next_pod_date += timedelta(days=pod_change_days)
+        if next_sensor_date <= end:
+            next_sensor, idx = get_next_sensor_site(last_sensor, idx)
+            forecast.append(f"{next_sensor_date.strftime('%b %d, %Y')}: Sensor Change -> {next_sensor['site']}")
+            last_sensor = next_sensor
+            next_sensor_date += timedelta(days=sensor_change_days)
+
+    return "\n".join(sorted(forecast))
+
+
+def start_session(sensor_site, pod_site, sensor_date, pod_date):
+    global current_sensor_site, current_pod_site, current_sensor_date, current_pod_date, sensor_index
+    current_sensor_site = {"site": sensor_site, "side": "left" if "Left" in sensor_site else "right"}
+    current_pod_site = {"site": pod_site, "side": "left" if "Left" in pod_site else "right"}
+    current_sensor_date = date.fromisoformat(sensor_date)
+    current_pod_date = date.fromisoformat(pod_date)
+    sensor_index = 0
+    return f"Sensor: {sensor_site} (Changed on {sensor_date})\nPod: {pod_site} (Changed on {pod_date})"
+
+
+def handle_sensor_change():
+    global current_sensor_site, current_sensor_date, sensor_index
+    suggested, sensor_index = get_next_sensor_site(current_sensor_site, sensor_index)
+    current_sensor_site = suggested
+    current_sensor_date = date.today()
+    return f"Next sensor site: {suggested['site']}"
+
+
+def handle_pod_change():
+    global current_pod_site, current_pod_date
+    suggested = get_next_pod_site(sensor_index)
+    current_pod_site = {"site": suggested}
+    current_pod_date = date.today()
+    return f"Next pod site: {suggested}"
+
+
+def display_forecast():
+    return forecast_schedule(current_pod_date, current_sensor_date, current_pod_site, current_sensor_site, sensor_index)
+
+
+with gr.Blocks() as demo:
+    gr.Markdown("# 🩺 Pod & Sensor Rotation Scheduler")
+    with gr.Row():
+        sensor_input = gr.Textbox(label="Current Sensor Site", value=current_sensor_site["site"])
+        pod_input = gr.Textbox(label="Current Pod Site", value=current_pod_site["site"])
+    with gr.Row():
+        sensor_date_input = gr.Textbox(label="Sensor Change Date (YYYY-MM-DD)", value=str(current_sensor_date))
+        pod_date_input = gr.Textbox(label="Pod Change Date (YYYY-MM-DD)", value=str(current_pod_date))
+    start_btn = gr.Button("✅ Start Session")
+    session_output = gr.Textbox(label="Current Site Info")
+
+    gr.Markdown("## ➡️ Choose Change to Make:")
+    with gr.Row():
+        sensor_change_btn = gr.Button("🔄 Make Sensor Change")
+        pod_change_btn = gr.Button("🔄 Make Pod Change")
+
+    site_change_output = gr.Textbox(label="Next Site Suggestion")
+    gr.Markdown("---")
+
+    forecast_btn = gr.Button("📅 Show Upcoming Schedule")
+    forecast_output = gr.Textbox(label="4-Week Forecast", lines=10)
+
+    # Events
+    start_btn.click(start_session, inputs=[sensor_input, pod_input, sensor_date_input, pod_date_input], outputs=session_output)
+    sensor_change_btn.click(handle_sensor_change, outputs=site_change_output)
+    pod_change_btn.click(handle_pod_change, outputs=site_change_output)
+    forecast_btn.click(display_forecast, outputs=forecast_output)
+
+demo.launch()
 
 
 
